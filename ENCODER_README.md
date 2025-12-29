@@ -20,23 +20,27 @@ Ya, konsepnya **bisa**, tetapi kode asli memiliki beberapa masalah yang perlu di
 
 ## Perbaikan yang Dilakukan
 
-### 1. ISR Terpisah untuk Setiap Pin
-Setiap pin encoder sekarang memiliki ISR sendiri:
-- `onEncoder1A()` untuk encoder1_a
-- `onEncoder1B()` untuk encoder1_b
-- `onEncoder2A()` untuk encoder2_a
-- `onEncoder2B()` untuk encoder2_b
+### 1. ISR yang Disederhanakan
+Setiap encoder sekarang memiliki satu ISR yang menangani perubahan pada kedua pin A dan B:
+- `onEncoder1()` untuk encoder 1 (menangani pin A dan B)
+- `onEncoder2()` untuk encoder 2 (menangani pin A dan B)
 
-### 2. Dua Counter Terpisah
+Logika ISR menggunakan perbandingan sederhana: jika A == B maka decrement, jika tidak maka increment.
+
+### 2. Interrupt pada CHANGE Edge
+Menggunakan `CHANGE` daripada `RISING` untuk mendapatkan resolusi 4x dan deteksi arah yang lebih baik:
+```cpp
+attachInterrupt(digitalPinToInterrupt(encoder1_a), onEncoder1, CHANGE);
+```
+
+### 3. Dua Counter Terpisah
 - `pulsa1` untuk encoder 1
 - `pulsa2` untuk encoder 2
 
-### 3. Inisialisasi Semaphore
-```cpp
-timerSemaphore = xSemaphoreCreateBinary();
-```
+### 4. Menghapus Semaphore yang Tidak Digunakan
+Semaphore telah dihapus karena tidak diperlukan untuk aplikasi ini. Critical section sudah cukup untuk proteksi data.
 
-### 4. Proteksi Critical Section di Loop
+### 5. Proteksi Critical Section di Loop
 ```cpp
 portENTER_CRITICAL(&timerMux);
 long pulsa1_copy = pulsa1;
@@ -44,7 +48,7 @@ long pulsa2_copy = pulsa2;
 portEXIT_CRITICAL(&timerMux);
 ```
 
-### 5. Delay di Loop
+### 6. Delay di Loop
 ```cpp
 delay(100);  // Menghindari serial flooding
 ```
@@ -52,8 +56,12 @@ delay(100);  // Menghindari serial flooding
 ## Cara Kerja Encoder Quadrature
 
 Encoder quadrature memiliki 2 output (A dan B) yang bergeser fase 90 derajat:
-- Jika A naik saat B rendah → rotasi searah jarum jam (increment)
-- Jika A naik saat B tinggi → rotasi berlawanan jarum jam (decrement)
+- Jika A == B setelah perubahan → rotasi berlawanan jarum jam (decrement)
+- Jika A != B setelah perubahan → rotasi searah jarum jam (increment)
+
+Dengan menggunakan interrupt pada `CHANGE` (bukan `RISING`), kita mendapatkan:
+- Resolusi 4x (setiap transisi pada A atau B memicu interrupt)
+- Deteksi arah yang lebih akurat
 
 ## Pin Configuration
 
@@ -70,6 +78,7 @@ Untuk menguji kode ini:
 ## Catatan Penting
 
 - Pin GPIO yang digunakan harus mendukung interrupt pada ESP32
-- Pin 36, 34, 39, 35 adalah pin input-only pada beberapa board ESP32
-- Pastikan encoder memiliki pull-up resistor jika diperlukan
-- Untuk pembacaan yang lebih akurat, pertimbangkan untuk menambahkan debouncing
+- Pin 36 dan 39 adalah pin input-only pada ESP32 dan tidak memiliki internal pull-up
+- **Penting**: Pastikan encoder memiliki pull-up resistor eksternal (biasanya 10kΩ ke 3.3V)
+- Interrupt pada CHANGE memberikan resolusi 4x lebih tinggi daripada RISING
+- Untuk mengurangi noise, pertimbangkan untuk menambahkan capacitor (100nF) pada setiap pin encoder
